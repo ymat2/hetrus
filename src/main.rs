@@ -15,4 +15,10 @@ fn main() {
     let args = Args::parse();
     println!("Hello, {}!", args.name);
     let mut bcf = Reader::from_path(args.input).expect("Error opening file.");
+
+    for record in bcf.records() {
+        let record = record?;
+        let pos = record.pos();
+        println!("POS: {}", pos);
+    }
 }
