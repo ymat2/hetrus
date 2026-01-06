@@ -1,8 +1,7 @@
 use clap::Parser;
-use rust_htslib::bcf::{Reader, Read, Record};
-use std::path::PathBuf;
+use rust_htslib::bcf::{Read, Reader, Record};
 use std::convert::TryFrom;
-
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -29,19 +28,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let gt_count = count_genotypes(&record, sample_count)?;
         // haploid が含まれてしまっているが、"all missing" を除外することでひとまず対処？
         let observed_het = calc_observed_heterozygosity(gt_count, true)?;
-        println!("Locus: {}, GTs: {:?}, Ho: {:.4}", pos, gt_count, observed_het)
+        println!(
+            "Locus: {}, GTs: {:?}, Ho: {:.4}",
+            pos, gt_count, observed_het
+        )
     }
 
     Ok(())
 }
 
-
 fn is_biallelic(record: &Record) -> bool {
     record.alleles().len() == 2
 }
 
-
-fn count_genotypes(record: &Record, n_samples: usize) -> Result<(u32, u32, u32), Box<dyn std::error::Error>> {
+fn count_genotypes(
+    record: &Record,
+    n_samples: usize,
+) -> Result<(u32, u32, u32), Box<dyn std::error::Error>> {
     let gts = record.genotypes()?;
 
     let mut n_homo = 0;
@@ -72,7 +75,10 @@ fn count_genotypes(record: &Record, n_samples: usize) -> Result<(u32, u32, u32),
     Ok((n_homo, n_hetero, n_missing))
 }
 
-fn calc_observed_heterozygosity(gt_count: (u32, u32, u32), ignore_missing: bool) -> Result<f32, Box<dyn std::error::Error>> {
+fn calc_observed_heterozygosity(
+    gt_count: (u32, u32, u32),
+    ignore_missing: bool,
+) -> Result<f32, Box<dyn std::error::Error>> {
     let ho: f32;
     let (n_homo, n_hetero, n_missing) = gt_count;
     if ignore_missing {
