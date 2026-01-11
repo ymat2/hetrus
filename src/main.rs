@@ -1,5 +1,6 @@
 use clap::Parser;
 use rust_htslib::bcf::{Read, Reader, Record};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -12,7 +13,18 @@ struct Args {
     input: PathBuf,
     #[arg(short, long, value_hint = clap::ValueHint::FilePath, help = "Output file path.")]
     out: PathBuf,
+    #[arg(long = "window-size")]
+    window_size: u64,
+    #[arg(long = "window-step")]
+    window_step: u64,
 }
+
+#[derive(Clone, Default, Debug)]
+struct WindowBin {
+    count: u64,
+}
+type ChromBins = Vec<WindowBin>;
+type Bins = HashMap<String, ChromBins>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -20,8 +32,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let outfile = File::create(args.out)?;
     let mut out = BufWriter::new(outfile);
     let header = bcf.header().clone();
+    let mut bins: Bins = HashMap::new();
+    let window_size: u64 = args.window_size;
+    let window_step: u64 = args.window_step;
 
-    writeln!(out, "CHROM\tPOS\tHo\tHe")?;
     for record_result in bcf.records() {
         let record = record_result?;
         let rid = record.rid().expect("RID missing");
@@ -42,6 +56,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{}\t{}\t{:.4}\t{:.4}",
             chr, pos, observed_het, expected_het
         )?;
+
+        add_snp_to_bins(&mut bins, chr, pos, window_size, window_step);
+    }
+
+    let mut chroms: Vec<_> = bins.keys().collect();
+    chroms.sort();
+    for chrom in chroms {
+        let chrom_bins = &bins[chrom];
+        for (i, bin) in chrom_bins.iter().enumerate() {
+            if bin.count == 0 {
+                continue;
+            }
+            let start: u64 = i as u64 * window_step + 1;
+            let end: u64 = start + window_size - 1;
+            println!("{}\t{}\t{}\t{}", chrom, start, end, bin.count);
+        }
     }
 
     Ok(())
@@ -116,15 +146,38 @@ fn calc_expected_heterozygosity(
         if n_ref_homo + n_hetero + n_alt_homo == 0 {
             he = f32::NAN
         } else {
-            af = (1 * n_hetero + 2 * n_alt_homo) as f32
+            af = (n_hetero + 2 * n_alt_homo) as f32
                 / (2 * (n_ref_homo + n_hetero + n_alt_homo)) as f32;
             he = 2.0 * af * (1.0 - af)
         }
     } else {
-        af = (1 * n_hetero + 2 * n_alt_homo) as f32
+        af = (n_hetero + 2 * n_alt_homo) as f32
             / (2 * (n_ref_homo + n_hetero + n_alt_homo + n_missing)) as f32;
         he = 2.0 * af * (1.0 - af)
     }
 
     Ok(he)
+}
+
+fn window_range(pos: i64, size: u64, step: u64) -> (usize, usize) {
+    let mut first = ((pos - size as i64) as f64 / step as f64).ceil() as isize;
+    if first < 0 {
+        first = 0;
+    }
+    let last = (pos as f64 / step as f64).ceil() as usize;
+    (first as usize, last)
+}
+
+fn add_snp_to_bins(bins: &mut Bins, chrom: &str, pos: i64, size: u64, step: u64) {
+    let (first, last) = window_range(pos, size, step);
+    let chrom_bins = bins.entry(chrom.to_string()).or_default();
+
+    if chrom_bins.len() < last {
+        chrom_bins.resize_with(last, WindowBin::default);
+    }
+
+    for idx in first..last {
+        let bin = &mut chrom_bins[idx];
+        bin.count += 1;
+    }
 }
