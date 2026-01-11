@@ -14,14 +14,14 @@ struct Args {
     #[arg(short, long, value_hint = clap::ValueHint::FilePath, help = "Output file path.")]
     out: PathBuf,
     #[arg(long = "window-size")]
-    window_size: u64,
+    window_size: i64,
     #[arg(long = "window-step")]
-    window_step: u64,
+    window_step: i64,
 }
 
 #[derive(Clone, Default, Debug)]
 struct WindowBin {
-    count: u64,
+    count: i64,
 }
 type ChromBins = Vec<WindowBin>;
 type Bins = HashMap<String, ChromBins>;
@@ -33,8 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out = BufWriter::new(outfile);
     let header = bcf.header().clone();
     let mut bins: Bins = HashMap::new();
-    let window_size: u64 = args.window_size;
-    let window_step: u64 = args.window_step;
+    let window_size: i64 = args.window_size;
+    let window_step: i64 = args.window_step;
 
     for record_result in bcf.records() {
         let record = record_result?;
@@ -64,12 +64,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     chroms.sort();
     for chrom in chroms {
         let chrom_bins = &bins[chrom];
-        for (i, bin) in chrom_bins.iter().enumerate() {
+        for (idx, bin) in chrom_bins.iter().enumerate() {
             if bin.count == 0 {
                 continue;
             }
-            let start: u64 = i as u64 * window_step + 1;
-            let end: u64 = start + window_size - 1;
+            let start: i64 = idx as i64 * window_step + 1;
+            let end: i64 = start + window_size - 1;
             println!("{}\t{}\t{}\t{}", chrom, start, end, bin.count);
         }
     }
@@ -84,7 +84,7 @@ fn is_biallelic(record: &Record) -> bool {
 fn count_genotypes(
     record: &Record,
     n_samples: usize,
-) -> Result<(u32, u32, u32, u32), Box<dyn std::error::Error>> {
+) -> Result<(i64, i64, i64, i64), Box<dyn std::error::Error>> {
     let gts = record.genotypes()?;
 
     let mut n_ref_homo = 0;
@@ -117,50 +117,50 @@ fn count_genotypes(
 }
 
 fn calc_observed_heterozygosity(
-    gt_count: (u32, u32, u32, u32),
+    gt_count: (i64, i64, i64, i64),
     ignore_missing: bool,
-) -> Result<f32, Box<dyn std::error::Error>> {
-    let ho: f32;
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let ho: f64;
     let (n_ref_homo, n_hetero, n_alt_homo, n_missing) = gt_count;
     if ignore_missing {
         if n_ref_homo + n_hetero + n_alt_homo == 0 {
-            ho = f32::NAN
+            ho = f64::NAN
         } else {
-            ho = (n_hetero) as f32 / (n_ref_homo + n_hetero + n_alt_homo) as f32;
+            ho = (n_hetero) as f64 / (n_ref_homo + n_hetero + n_alt_homo) as f64;
         }
     } else {
-        ho = (n_hetero) as f32 / (n_ref_homo + n_hetero + n_alt_homo + n_missing) as f32;
+        ho = (n_hetero) as f64 / (n_ref_homo + n_hetero + n_alt_homo + n_missing) as f64;
     }
 
     Ok(ho)
 }
 
 fn calc_expected_heterozygosity(
-    gt_count: (u32, u32, u32, u32),
+    gt_count: (i64, i64, i64, i64),
     ignore_missing: bool,
-) -> Result<f32, Box<dyn std::error::Error>> {
-    let af: f32;
-    let he: f32;
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let af: f64;
+    let he: f64;
     let (n_ref_homo, n_hetero, n_alt_homo, n_missing) = gt_count;
     if ignore_missing {
         if n_ref_homo + n_hetero + n_alt_homo == 0 {
-            he = f32::NAN
+            he = f64::NAN
         } else {
-            af = (n_hetero + 2 * n_alt_homo) as f32
-                / (2 * (n_ref_homo + n_hetero + n_alt_homo)) as f32;
+            af = (n_hetero + 2 * n_alt_homo) as f64
+                / (2 * (n_ref_homo + n_hetero + n_alt_homo)) as f64;
             he = 2.0 * af * (1.0 - af)
         }
     } else {
-        af = (n_hetero + 2 * n_alt_homo) as f32
-            / (2 * (n_ref_homo + n_hetero + n_alt_homo + n_missing)) as f32;
+        af = (n_hetero + 2 * n_alt_homo) as f64
+            / (2 * (n_ref_homo + n_hetero + n_alt_homo + n_missing)) as f64;
         he = 2.0 * af * (1.0 - af)
     }
 
     Ok(he)
 }
 
-fn window_range(pos: i64, size: u64, step: u64) -> (usize, usize) {
-    let mut first = ((pos - size as i64) as f64 / step as f64).ceil() as isize;
+fn window_range(pos: i64, size: i64, step: i64) -> (usize, usize) {
+    let mut first = ((pos - size) as f64 / step as f64).ceil() as isize;
     if first < 0 {
         first = 0;
     }
@@ -168,7 +168,7 @@ fn window_range(pos: i64, size: u64, step: u64) -> (usize, usize) {
     (first as usize, last)
 }
 
-fn add_snp_to_bins(bins: &mut Bins, chrom: &str, pos: i64, size: u64, step: u64) {
+fn add_snp_to_bins(bins: &mut Bins, chrom: &str, pos: i64, size: i64, step: i64) {
     let (first, last) = window_range(pos, size, step);
     let chrom_bins = bins.entry(chrom.to_string()).or_default();
 
