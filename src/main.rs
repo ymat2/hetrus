@@ -62,6 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut chroms: Vec<_> = bins.keys().collect();
     chroms.sort();
+    println!("CHROM\tBIN_START\tBIN_END\tN_VARIANTS");
     for chrom in chroms {
         let chrom_bins = &bins[chrom];
         for (idx, bin) in chrom_bins.iter().enumerate() {
@@ -159,25 +160,19 @@ fn calc_expected_heterozygosity(
     Ok(he)
 }
 
-fn window_range(pos: i64, size: i64, step: i64) -> (usize, usize) {
-    let mut first = ((pos - size) as f64 / step as f64).ceil() as isize;
-    if first < 0 {
-        first = 0;
-    }
-    let last = (pos as f64 / step as f64).ceil() as usize;
-    (first as usize, last)
-}
-
 fn add_snp_to_bins(bins: &mut Bins, chrom: &str, pos: i64, size: i64, step: i64) {
-    let (first, last) = window_range(pos, size, step);
-    let chrom_bins = bins.entry(chrom.to_string()).or_default();
+    let mut first: usize = 0;
+    if pos >= size {
+        first = ((pos - size) as f64 / step as f64).ceil() as usize;
+    };
+    let last = (pos as f64 / step as f64).ceil() as usize;
 
+    let chrom_bins = bins.entry(chrom.to_string()).or_default();
     if chrom_bins.len() < last {
         chrom_bins.resize_with(last, WindowBin::default);
     }
 
-    for idx in first..last {
-        let bin = &mut chrom_bins[idx];
+    for bin in chrom_bins.iter_mut().take(last).skip(first) {
         bin.count += 1;
     }
 }
