@@ -9,9 +9,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, value_hint = clap::ValueHint::FilePath, help = "VCF, bgzipped VCF, and BCF.")]
+    #[arg(short, long, value_hint = clap::ValueHint::FilePath, help = "VCF, bgzipped VCF, and BCF")]
     input: PathBuf,
-    #[arg(short, long, value_hint = clap::ValueHint::FilePath, help = "Output file path.")]
+    #[arg(short, long, value_hint = clap::ValueHint::FilePath, help = "Path for output file")]
     out: PathBuf,
     #[arg(long = "window-size")]
     window_size: i64,
@@ -22,6 +22,10 @@ struct Args {
 #[derive(Clone, Default, Debug)]
 struct WindowBin {
     count: i64,
+    n_ref_homo: i64,
+    n_hetero: i64,
+    n_alt_homo: i64,
+    n_missing: i64,
 }
 type ChromBins = Vec<WindowBin>;
 type Bins = HashMap<String, ChromBins>;
@@ -57,21 +61,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             chr, pos, observed_het, expected_het
         )?;
 
-        add_snp_to_bins(&mut bins, chr, pos, window_size, window_step);
+        update_bins(&mut bins, chr, pos, gt_count, window_size, window_step);
     }
 
     let mut chroms: Vec<_> = bins.keys().collect();
     chroms.sort();
-    println!("CHROM\tBIN_START\tBIN_END\tN_VARIANTS");
+    println!("CHROM\tBIN_START\tBIN_END\tN_VARIANTS\tH_o\tH_e");
     for chrom in chroms {
         let chrom_bins = &bins[chrom];
         for (idx, bin) in chrom_bins.iter().enumerate() {
             if bin.count == 0 {
                 continue;
             }
+            let accum_gt_count = (
+                bin.n_ref_homo,
+                bin.n_hetero,
+                bin.n_alt_homo,
+                bin.n_missing,
+            );
             let start: i64 = idx as i64 * window_step + 1;
             let end: i64 = start + window_size - 1;
-            println!("{}\t{}\t{}\t{}", chrom, start, end, bin.count);
+            let observed_het: f64 = calc_observed_heterozygosity(accum_gt_count, true)?;
+            let expected_het: f64 = calc_expected_heterozygosity(accum_gt_count, true)?;
+            println!(
+                "{}\t{}\t{}\t{}\t{:.4}\t{:.4}",
+                chrom, start, end, bin.count, observed_het, expected_het
+            );
         }
     }
 
@@ -160,7 +175,14 @@ fn calc_expected_heterozygosity(
     Ok(he)
 }
 
-fn add_snp_to_bins(bins: &mut Bins, chrom: &str, pos: i64, size: i64, step: i64) {
+fn update_bins(
+    bins: &mut Bins,
+    chrom: &str,
+    pos: i64,
+    gt_count: (i64, i64, i64, i64),
+    size: i64,
+    step: i64,
+) {
     let mut first: usize = 0;
     if pos >= size {
         first = ((pos - size) as f64 / step as f64).ceil() as usize;
@@ -172,7 +194,12 @@ fn add_snp_to_bins(bins: &mut Bins, chrom: &str, pos: i64, size: i64, step: i64)
         chrom_bins.resize_with(last, WindowBin::default);
     }
 
+    let (n_ref_homo, n_hetero, n_alt_homo, n_missing) = gt_count;
     for bin in chrom_bins.iter_mut().take(last).skip(first) {
         bin.count += 1;
+        bin.n_ref_homo += n_ref_homo;
+        bin.n_hetero += n_hetero;
+        bin.n_alt_homo += n_alt_homo;
+        bin.n_missing += n_missing;
     }
 }
